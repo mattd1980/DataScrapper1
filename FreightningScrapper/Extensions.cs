@@ -1,29 +1,47 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Playwright;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
-public class OrderTracker
+namespace FreightningScrapper;
+
+public static class Extensions
 {
-    public async Task<List<StatusHistory>> GetStatusHistoryAsync(string trackingNumber)
+
+    public static async Task GetStatusHistoryAsync(this OrderTrackerHub hubContext, string clientId, string name, string trackingNumber, CancellationToken cancelToken)
+    {
+        AppLogger.Info($"Tracking number: {trackingNumber}");
+
+        var history = await GetStatusHistoryAsync(name);
+
+        if (history.Count > 0)
+        {
+            await hubContext.Clients.Client(clientId).SendAsync("Update", history, cancelToken);
+            AppLogger.Success($"Enviadas {history.Count} actualizaciones a los clientes");
+        }
+    }
+
+    private static async Task<List<StatusHistory>> GetStatusHistoryAsync(string trackingNumber)
     {
         var results = new List<StatusHistory>();
 
         try
         {
             AppLogger.Info("Launching browser...");
+
             using var playwright = await Playwright.CreateAsync();
-            await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
+
+            await using var browser = await playwright.Chromium.LaunchAsync(new()
+            {
+                Timeout = 60000,
+                Headless = true,
+            });
+
             var context = await browser.NewContextAsync();
             var page = await context.NewPageAsync();
 
             AppLogger.Info("Navigating to GRG tracking page...");
-            await page.GotoAsync("https://grguweb.tmwcloud.com/trace/external.msw", new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.NetworkIdle,
-                Timeout = 60000
-            });
+            await page.GotoAsync("https://grguweb.tmwcloud.com/trace/external.msw");
 
-            AppLogger.Info("Filling in tracking number...");
+            AppLogger.Info($"Filling in tracking number with {trackingNumber}...");
             var inputFields = await page.QuerySelectorAllAsync("input[name='search_value[]']");
             if (inputFields.Count == 0)
             {
